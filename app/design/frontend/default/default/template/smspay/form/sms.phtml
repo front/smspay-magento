@@ -1,0 +1,17 @@
+<?php
+$_code = $this->getMethodCode();
+$_phone_codes = explode( ',', $this->getMethod()->getConfigData('phone_code') );
+?>
+<ul class="form-list" id="payment_form_<?php echo $_code ?>" style="display:none">
+    <li>
+        <label for="<?php echo $_code; ?>_phone_number" class="required"><em>*</em><?php echo $this->__('Phone') ?></label>
+        <div class="input-box">
+            <select name="payment[phone_code]" id="<?php echo $_code; ?>_phone_number_prefix">
+                <?php foreach( $_phone_codes as $code ) { ?>
+                    <option value="<?php echo $code; ?>">+<?php echo $code; ?></option>
+                <?php } ?>
+            </select>
+            <input id="<?php echo $_code ?>_phone_number" class="input-text required-entry" type="tel" value="" name="payment[phone_number]" title="Phone number" autocomplete="off">
+        </div>
+    </li>
+</ul>
