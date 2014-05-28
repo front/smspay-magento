@@ -10,6 +10,10 @@ class NextLogic_SmsPay_Model_System_Config_Source_Phone_Code
             'label' => '+35'
         );
         $options[] = array(
+            'value' => 40,
+            'label' => '+40'
+        );
+        $options[] = array(
             'value' => 46,
             'label' => '+46'
         );

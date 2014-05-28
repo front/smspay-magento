@@ -20,6 +20,10 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
     // Authorize only
     const REQUEST_TYPE_AUTH_ONLY = 'AUTH_ONLY';
     
+    // Response codes
+    const RESPONSE_CODE_ERROR = -1;
+    const RESPONSE_CODE_APPROVED = 1;
+    
     /**
      * Block type.
      * 
@@ -114,8 +118,10 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
         }
         
         $this->_place( $payment, $amount, self::REQUEST_TYPE_AUTH_ONLY );
+        $payment->setSkipTransactionCreation( true );
         
-    }
+        return $this; 
+   }
 
     /**
      * this method is called if we are authorising AND
@@ -188,6 +194,26 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
     }
     
     /**
+     * Get the success URL callback.
+     * 
+     * @return string
+     */
+    public function getSuccessUrl()
+    {
+        return Mage::getUrl( 'smspay/payment/success' );
+    }
+    
+    /**
+     * Get the failure URL callback.
+     * 
+     * @return string
+     */
+    public function getFailureUrl()
+    {
+        return Mage::getUrl( 'smspay/payment/failure' );
+    }
+    
+    /**
      * Place the order and make the API call.
      * 
      * @param Varien_Object $payment
@@ -203,17 +229,33 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
         $request = $this->_buildRequest( $payment );
         $result = $this->_postRequest( $request );
         
+        switch ($requestType) {
+            case self::REQUEST_TYPE_AUTH_ONLY:
+                $newTransactionType = Mage_Sales_Model_Order_Payment_Transaction::TYPE_AUTH;
+                $defaultExceptionMessage = $this->_getHelper()->__( 'Payment authorization error.' );
+                break;
+        }
+        
+        switch ( $result->getResponseCode() ) {
+            case self::RESPONSE_CODE_APPROVED:
+                
+                $this->_addTransaction( 
+                    $payment, 
+                    $result->getTransactionId(),
+                    $newTransactionType, 
+                    array(), 
+                    array(), 
+                    Mage::helper( 'smspay' )->getTransactionMessage( $payment, $requestType, $result->getTransactionId(), $amount )
+                );
+                
+                return $this;
+            default:
+                Mage::throwException( $defaultExceptionMessage );
+        }
+        
         return $this;
     }
     
-    protected function _getRequest()
-    {
-        $request = Mage::getModel( 'smspay/smspay_request' );
-        
-        return $request;
-    }
-
-
     /**
      * Prepare request to gateway
      *
@@ -233,15 +275,19 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
         $request->setCurrency( $order->getBaseCurrencyCode() );
         $request->setMerchant( $this->getConfigData( 'merchant_id' ) );
         $request->setDescription(  );
-        $request->setShipping( $order->getShippingAmount() );
+        $request->setShipping( (int)($order->getShippingAmount() * 100) );
         
         foreach( $order->getAllItems() as $key => $item ) {
-            $request->{'setItemNumber_' . ( $key + 1 )}( $item->getSku() );
-            $request->{'setItemName_' . ( $key + 1 )}( $item->getName() );
-            $request->{'setAmount_' . ( $key + 1 )}( $item->getPrice() );
-            $request->{'setQuantity_' . ( $key + 1 )}( $item->getQtyOrdered() );
-            $request->{'setShipping_' . ( $key + 1 )}( 0 );
+            $itemNumber = $key + 1;
+            $request->{ 'setItemNumber_' . $itemNumber }( $item->getSku() );
+            $request->{ 'setItemName_' . $itemNumber }( $item->getName() );
+            $request->{ 'setAmount_' . $itemNumber }( (int)($item->getPrice() * 100) );
+            $request->{ 'setQuantity_' . $itemNumber }( $item->getQtyOrdered() );
+            $request->{ 'setShipping_' . $itemNumber }( 0 );
         }
+        
+        $request->setSuccessUrl( $this->getSuccessUrl() );
+        $request->setFailureUrl( $this->getFailureUrl() );
         
         return $request;
     }
@@ -255,34 +301,35 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
     {
         $loginResult = $this->_loginPostRequest();
         
-        $result = Mage::getModel( 'smspay/smspay_result' );
+        $result = $this->_getResult();
         
         $client = new Varien_Http_Client();
 
         $testMode = $this->getConfigData( 'test_mode' );
         $client->setUri( $testMode == 'yes' ? self::REQUEST_PAYMENTS_TEST_URL : self::REQUEST_PAYMENTS_LIVE_URL );
-        $client->setConfig(array(
+        $client->setConfig( array(
             'maxredirects' => 0,
             'timeout' => 30,
             //'ssltransport' => 'tcp',
-        ));
+        ) );
         $client->setParameterPost( $request->getData() );
         $client->setMethod( Zend_Http_Client::POST );
         $client->setHeaders( 'Authorization', 'Bearer ' . $loginResult->getToken() );
         
-        var_dump( $client->getHeader( 'Authorization' ) );
-        
         try {
             $response = $client->request();
         } catch ( Exception $e ) {
-            $result->setResponseCode( -1 )
+            $result->setResponseCode( self::RESPONSE_CODE_ERROR )
                 ->setResponseReasonCode( $e->getCode() )
                 ->setResponseReasonText( $e->getMessage() );
             
             Mage::throwException( $this->_getHelper()->__( 'Gateway error: %s', $e->getMessage() ) );
         }
         
-        $responseBody = $response->getBody();
+        $responseBody = json_decode( $response->getBody() );
+        
+        $result->setResponseCode( self::RESPONSE_CODE_APPROVED )
+                ->setTransactionId( $responseBody->reference );
         
         return $result;
     }
@@ -297,30 +344,35 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
         return $request;
     }
     
+    /**
+     * Login the user.
+     * 
+     * @return NextLogic_SmsPay_Model_Smspay_Result
+     */
     protected function _loginPostRequest()
     {
         $request = $this->_buildLoginRequest();
         
-        $result = Mage::getModel('smspay/smspay_result');
+        $result = $this->_getResult();
         
         $client = new Varien_Http_Client();
 
-        $test_mode = $this->getConfigData('test_mode');
+        $test_mode = $this->getConfigData( 'test_mode' );
         $client->setUri( $test_mode == 'yes' ? self::REQUEST_LOGIN_TEST_URL : self::REQUEST_LOGIN_LIVE_URL );
-        $client->setConfig(array(
-            'maxredirects'=>0,
-            'timeout'=>30,
+        $client->setConfig( array(
+            'maxredirects' => 0,
+            'timeout' => 30,
             //'ssltransport' => 'tcp',
-        ));
-        $client->setParameterPost($request->getData());
-        $client->setMethod(Zend_Http_Client::POST);
+        ) );
+        $client->setParameterPost( $request->getData() );
+        $client->setMethod( Zend_Http_Client::POST );
         
         try {
             $response = $client->request();
-        } catch (Exception $e) {
-            $result->setResponseCode(-1)
-                ->setResponseReasonCode($e->getCode())
-                ->setResponseReasonText($e->getMessage());
+        } catch ( Exception $e ) {
+            $result->setResponseCode( -1 )
+                ->setResponseReasonCode( $e->getCode() )
+                ->setResponseReasonText( $e->getMessage() );
             
             Mage::throwException( $this->_getHelper()->__( 'Gateway error: %s', $e->getMessage() ) );
         }
@@ -335,5 +387,74 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
         }
         
         return $result;
+    }
+    
+    /**
+     * Add payment transaction
+     *
+     * @param Mage_Sales_Model_Order_Payment $payment
+     * @param string $transactionId
+     * @param string $transactionType
+     * @param array $transactionDetails
+     * @param array $transactionAdditionalInfo
+     * @return null|Mage_Sales_Model_Order_Payment_Transaction
+     */
+    protected function _addTransaction(Mage_Sales_Model_Order_Payment $payment, $transactionId, $transactionType,
+        array $transactionDetails = array(), array $transactionAdditionalInfo = array(), $message = false
+    ) {
+        $payment->setTransactionId($transactionId);
+        $payment->resetTransactionAdditionalInfo();
+        foreach ($transactionDetails as $key => $value) {
+            $payment->setData($key, $value);
+        }
+        foreach ($transactionAdditionalInfo as $key => $value) {
+            $payment->setTransactionAdditionalInfo($key, $value);
+        }
+        $transaction = $payment->addTransaction($transactionType, null, false , $message);
+        foreach ($transactionDetails as $key => $value) {
+            $payment->unsetData($key);
+        }
+        $payment->unsLastTransId();
+
+        /**
+         * It for self using
+         */
+        $transaction->setMessage($message);
+
+        return $transaction;
+    }
+    
+    
+    /**
+     * 
+     * @return NextLogic_SmsPay_Model_Smspay_Request
+     */
+    protected function _getRequest()
+    {
+        $request = Mage::getModel( 'smspay/smspay_request' );
+        
+        return $request;
+    }
+    
+    /**
+     * 
+     * @return NextLogic_SmsPay_Model_Smspay_Result
+     */
+    protected function _getResult()
+    {
+        $result = Mage::getModel( 'smspay/smspay_result' );
+        
+        return $result;
+    }
+    
+    /**
+     * 
+     * @return Mage_Customer_Model_Session
+     */
+    protected function _getSession()
+    {
+        $session = Mage::getSingleton('customer/session');
+        
+        return $session;
     }
 }
