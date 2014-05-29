@@ -249,8 +249,8 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
                     $result->getTransactionId(),
                     $newTransactionType, 
                     array(), 
-                    array()//, 
-                    //$this->_getHelper()->getTransactionMessage( $payment, $requestType, $result->getTransactionId(), $amount )
+                    array(), 
+                    $this->_getHelper()->getTransactionMessage( $payment, $requestType, $result->getTransactionId(), $amount )
                 );
                 
                 return $this;
