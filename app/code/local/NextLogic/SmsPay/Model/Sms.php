@@ -17,6 +17,11 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
     const REQUEST_LOGIN_LIVE_URL = 'http://api.smspay.devz.no/v1/login';
     const REQUEST_LOGIN_TEST_URL = 'http://api.smspay.devz.no/v1/login';
     
+    // API response status codes
+    const API_RESPONSE_STATUS_CODE_ERROR = 400;
+    const API_RESPONSE_STATUS_CODE_SUCCESS = 200;
+    
+    
     // Authorize only
     const REQUEST_TYPE_AUTH_ONLY = 'AUTH_ONLY';
     
@@ -244,8 +249,8 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
                     $result->getTransactionId(),
                     $newTransactionType, 
                     array(), 
-                    array(), 
-                    Mage::helper( 'smspay' )->getTransactionMessage( $payment, $requestType, $result->getTransactionId(), $amount )
+                    array()//, 
+                    //$this->_getHelper()->getTransactionMessage( $payment, $requestType, $result->getTransactionId(), $amount )
                 );
                 
                 return $this;
@@ -319,17 +324,31 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
         try {
             $response = $client->request();
         } catch ( Exception $e ) {
-            $result->setResponseCode( self::RESPONSE_CODE_ERROR )
-                ->setResponseReasonCode( $e->getCode() )
-                ->setResponseReasonText( $e->getMessage() );
+            $result->setResponseCode( self::RESPONSE_CODE_ERROR );
             
             Mage::throwException( $this->_getHelper()->__( 'Gateway error: %s', $e->getMessage() ) );
         }
         
         $responseBody = json_decode( $response->getBody() );
         
-        $result->setResponseCode( self::RESPONSE_CODE_APPROVED )
+        if ( isset( $responseBody->statusCode ) ) {
+            switch( $responseBody->statusCode ) {
+                case self::API_RESPONSE_STATUS_CODE_ERROR:
+                    
+                    $result->setResponseCode( self::RESPONSE_CODE_ERROR );
+                    
+                    $this->_log( $responseBody->error . ': ' . $responseBody->message );
+                    
+                    break;
+            }
+            
+            Mage::throwException( $this->_getHelper()->__( 'Gateway error. Please contact the administrator.' ) );
+        } else {
+            
+            $result->setResponseCode( self::RESPONSE_CODE_APPROVED )
                 ->setTransactionId( $responseBody->reference );
+                        
+        }
         
         return $result;
     }
@@ -399,31 +418,37 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
      * @param array $transactionAdditionalInfo
      * @return null|Mage_Sales_Model_Order_Payment_Transaction
      */
-    protected function _addTransaction(Mage_Sales_Model_Order_Payment $payment, $transactionId, $transactionType,
-        array $transactionDetails = array(), array $transactionAdditionalInfo = array(), $message = false
-    ) {
-        $payment->setTransactionId($transactionId);
+    protected function _addTransaction( Mage_Sales_Model_Order_Payment $payment, $transactionId, $transactionType, array $transactionDetails = array(), array $transactionAdditionalInfo = array(), $message = false )
+    {
+        $payment->setTransactionId( $transactionId );
         $payment->resetTransactionAdditionalInfo();
-        foreach ($transactionDetails as $key => $value) {
-            $payment->setData($key, $value);
+        foreach ( $transactionDetails as $key => $value ) {
+            $payment->setData( $key, $value );
         }
-        foreach ($transactionAdditionalInfo as $key => $value) {
-            $payment->setTransactionAdditionalInfo($key, $value);
+        foreach ( $transactionAdditionalInfo as $key => $value ) {
+            $payment->setTransactionAdditionalInfo( $key, $value );
         }
-        $transaction = $payment->addTransaction($transactionType, null, false , $message);
-        foreach ($transactionDetails as $key => $value) {
-            $payment->unsetData($key);
+        $transaction = $payment->addTransaction( $transactionType, null, false , $message );
+        foreach ( $transactionDetails as $key => $value ) {
+            $payment->unsetData( $key );
         }
         $payment->unsLastTransId();
 
         /**
          * It for self using
          */
-        $transaction->setMessage($message);
+        $transaction->setMessage( $message );
 
         return $transaction;
     }
     
+    /**
+     * 
+     */
+    protected function _getHelper()
+    {
+        return Mage::helper( 'smspay' );
+    }
     
     /**
      * 
@@ -456,5 +481,10 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
         $session = Mage::getSingleton('customer/session');
         
         return $session;
+    }
+    
+    private function _log( $message, $level = null )
+    {
+        Mage::log( $message, $level, 'smspay.log' );
     }
 }
