@@ -3,8 +3,9 @@ $_code = $this->getMethodCode();
 $_phone_codes = explode( ',', $this->getMethod()->getConfigData( 'phone_code' ) );
 $_description = $this->getMethod()->getConfigData( 'description' );
 ?>
-<ul class="form-list" id="payment_form_<?php echo $_code ?>" style="display:none">
+<ul class="form-list" id="payment_form_<?php echo $_code ?>" style="display: none;">
     <li>
+        <p class="required">* <?php echo $this->__( 'Required Fields' ); ?></p>
         <?php echo $_description; ?>
     </li>
     <li>
