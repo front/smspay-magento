@@ -22,7 +22,12 @@ class NextLogic_SmsPay_Block_Form_Sms extends Mage_Payment_Block_Form
     public function _construct()
     {
         parent::_construct();
-        $this->setTemplate('smspay/form/sms.phtml');
+        
+        $mark = Mage::getConfig()->getBlockClassName( 'core/template' );
+        $mark = new $mark;
+        $mark->setTemplate( 'smspay/form/mark.phtml' )->setImageSrc( 'https://www.paypalobjects.com/en_US/i/logo/logo_BMLPP_90x34.gif' );
+        
+        $this->setTemplate('smspay/form/sms.phtml')->setMethodLabelAfterHtml( $mark->toHtml() );
     }
     
 }

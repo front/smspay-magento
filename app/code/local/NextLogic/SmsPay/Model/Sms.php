@@ -278,7 +278,7 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
         $request->setPhone( $payment->getPhoneCode() . $payment->getPhoneNumber() );
         $request->setInvoice( $order->getIncrementId() );
         $request->setCurrency( $order->getBaseCurrencyCode() );
-        $request->setMerchant( $this->getConfigData( 'merchant_id' ) );
+        //$request->setMerchant( $this->getConfigData( 'merchant_id' ) );
         $request->setDescription(  );
         $request->setShipping( (int)($order->getShippingAmount() * 100) );
         
@@ -317,6 +317,8 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
             'timeout' => 30,
             //'ssltransport' => 'tcp',
         ) );
+        
+        $request->setMerchant( $loginResult->getMerchantId() );
         $client->setParameterPost( $request->getData() );
         $client->setMethod( Zend_Http_Client::POST );
         $client->setHeaders( 'Authorization', 'Bearer ' . $loginResult->getToken() );
@@ -400,7 +402,8 @@ class NextLogic_SmsPay_Model_Sms extends Mage_Payment_Model_Method_Abstract
         $responseBody = json_decode( $response->getBody() );
         
         if ( $responseBody ) {
-            $result->setToken( $responseBody->token );
+            $result->setToken( $responseBody->token )
+                    ->setMerchantId( $responseBody->merchantId );
         } else {
             Mage::throwException( $this->_getHelper()->__( 'Error in payment gateway.' ) );
         }

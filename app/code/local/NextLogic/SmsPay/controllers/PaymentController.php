@@ -26,11 +26,15 @@ class NextLogic_SmsPay_PaymentController extends Mage_Core_Controller_Front_Acti
         $updatedAt = $this->getRequest()->getPost( 'updatedAt' );
         $cancelReason = $this->getRequest()->getPost( 'cancelReason' );
         
+        if ( !is_numeric( $invoice ) ) {
+            return false;
+        }
+        $order = Mage::getModel('sales/order')->loadByIncrementId( $invoice );
+                
         switch ( $status ) {
             
             case self::PAYMENT_STATUS_COMPLETED:
-                $order = Mage::getModel('sales/order');
-        		$order->loadByIncrementId( $invoice );
+                
         		$order->setState( Mage_Sales_Model_Order::STATE_PROCESSING, true, 'Gateway has authorized the payment.' );
         		
         		$order->sendNewOrderEmail();
